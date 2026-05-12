@@ -1,11 +1,58 @@
 <div align="center">
-
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-
-  <h1>Built with AI Studio</h2>
-
-  <p>The fastest path from prompt to production with Gemini.</p>
-
-  <a href="https://aistudio.google.com/apps">Start building</a>
-
+  <!-- <img width="1200" height="475" alt="GHBanner" src="..." /> -->
+  <h1>Timer Clock / 桌面定点时钟 (MVP)</h1>
 </div>
+
+# 简介
+
+Timer Clock 是一个以“仪式感”为核心逻辑打造的极简桌面时间组件。它采用 Electron + React 构建，拥有无边框、全透明背景和强制置顶的特性，你可以把它放置在屏幕的任何角落，完全不干扰日常办公。
+
+在线预览（AI Studio）： https://ai.studio/apps/cf984652-bfd0-46c2-8a28-a18536a24e58
+
+## ✨ 核心特性
+
+- **定点时段展示**：采用非打扰设计，仅在每分钟的特定时间段（10~20秒、40~50秒）滑入屏幕出现。
+- **事件穿透 (Click-through)**：支持系统级鼠标点击穿透。无论你在这个区域左键还是右键点击，都不会被时钟应用拦截，操作会直接透传给下层的代码编辑器或浏览器。
+- **视觉受控 (Hover Transparency)**：当鼠标悬浮在组件上方时，透明度立刻降低为 `10%`，确保不会挡住你的视线和当前工作。
+- **精美极简设计**：融合了数字时间 (`Digital Numbers` 专属字体) 和机械指针状态，带来舒适的时间展示体验。
+
+## 🛠 本地运行与开发
+
+本应用基于 Node.js、Electron 和 React 构建。
+
+**前置依赖：**
+- Node.js (推荐 v18+)
+
+### 运行步骤
+
+1. **安装依赖**
+   ```bash
+   npm install
+   ```
+
+2. **启动开发环境 (结合 Vite 实时预览)**
+   ```bash
+   npm run dev
+   ```
+
+3. **构建并运行**
+   先构建前端文件，然后可以通过 electron 启动：
+   ```bash
+   npm run build
+   # 然后进入环境用 electron 运行 main.mjs
+   ```
+
+## 📦 版本迭代历史 (Changelog)
+
+### v1.0.0 (MVP 核心版本)
+- **初始版本发布**: 完善了定点滑入呈现、数字表盘+机械表盘的 UI 双显。
+- **彻底的无干扰设计**: 
+  - 取消了右键拖拽交互，保留最克制的显示功能。
+  - 实现了 `Electron` 层的 `setIgnoreMouseEvents` 全局点击事件穿透穿透。
+  - 增加 Hover 透明度降至 `10%` 的视觉避让机制。
+- **视效调优**: 调整了表盘 UI 的字间距、冒号位置，整体比例微缩适配了最佳视觉大小。
+- **本地化支持**: 清理了冗余配置文件（如 preload.cjs 等），简化了依赖逻辑，确保拉取到本地后能顺畅地被 Electron 运行。
+
+---
+
+*“恰到好处的仪式感，永远不要成为干扰。”*
