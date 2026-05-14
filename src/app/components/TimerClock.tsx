@@ -101,7 +101,7 @@ function DigitalClock() {
 
 export default function TimerClock() {
   return (
-    <div className="bg-[#ededed] flex gap-[10px] items-center px-[16px] py-[8px] relative rounded-[11px] min-w-[140px] z-[9999]">
+    <div className="bg-[#ededed] shadow-[0_8px_16px_rgba(0,0,0,0.22)] border border-black/5 flex gap-[10px] items-center px-[16px] py-[8px] relative rounded-[11px] min-w-[140px] z-[9999]">
       <ClockIcon />
       <DigitalClock />
     </div>
