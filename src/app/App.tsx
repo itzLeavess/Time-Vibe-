@@ -31,6 +31,8 @@ export default function App() {
   const [isHovered, setIsHovered] = useState(false);
   const [isPreview, setIsPreview] = useState(false);
   const [config, setConfig] = useState({ duration: 10, frequency: 1, position: 'top-right' });
+  const [motionBlurStyle, setMotionBlurStyle] = useState<React.CSSProperties>({});
+  const isMovingRef = useRef(false);
 
   useEffect(() => {
     // @ts-ignore
@@ -43,6 +45,60 @@ export default function App() {
       window.electronAPI.onShowPreview(() => setIsPreview(true));
       // @ts-ignore
       window.electronAPI.onHidePreview(() => setIsPreview(false));
+      // @ts-ignore
+      window.electronAPI.onWindowMoving((data: { dx: number, dy: number, progress: number }) => {
+        const speedX = data.dx;
+        const speedY = data.dy;
+        
+        const absSpeedX = Math.abs(speedX);
+        const absSpeedY = Math.abs(speedY);
+        const speedSum = absSpeedX + absSpeedY;
+        
+        // 核心解法：利用非线性函数应对短边，同时针对对角线运动额外叠加削弱惩罚（penalty）
+        const penalty = 1 - 0.4 * (Math.min(absSpeedX, absSpeedY) / Math.max(absSpeedX, absSpeedY, 1));
+
+        const scaleX = 1 + (Math.pow(absSpeedX, 0.6) * 0.0016) * penalty;
+        const scaleY = 1 + (Math.pow(absSpeedY, 0.6) * 0.0016) * penalty;
+        const maxScale = 1.12; 
+        
+        let transformStr = '';
+        if (absSpeedX > 2) {
+            transformStr += `scaleX(${Math.min(scaleX, maxScale)}) `;
+        }
+        if (absSpeedY > 2) {
+            transformStr += `scaleY(${Math.min(scaleY, maxScale)}) `;
+        }
+        
+        // 重新调节模糊强度的非线性映射，上限锁在 1.2px
+        const blurValue = Math.min(Math.pow(speedSum, 0.6) * 0.015, 1.2);
+        
+        // 当我们处于移动中时，我们强制解除 hovered，同时阻止新的鼠标事件生效
+        setIsHovered(false);
+        isMovingRef.current = true;
+
+        setMotionBlurStyle({
+          transform: transformStr.trim(),
+          transition: 'none',
+          filter: `blur(${blurValue}px)`,
+          transformOrigin: 'center center',
+          pointerEvents: 'none' // 强制在此刻忽略全部鼠标判定
+        });
+      });
+      // @ts-ignore
+      window.electronAPI.onWindowMovingEnd(() => {
+        isMovingRef.current = false;
+        setIsHovered(false);
+        setMotionBlurStyle({
+          transform: 'scaleX(1) scaleY(1)',
+          transition: 'all 0.4s cubic-bezier(0.25, 1, 0.5, 1)',
+          filter: 'blur(0px)',
+          transformOrigin: 'center center',
+          pointerEvents: 'auto'
+        });
+        setTimeout(() => {
+            setMotionBlurStyle({});
+        }, 400); // clear after transition
+      });
     }
   }, []);
 
@@ -101,10 +157,13 @@ export default function App() {
               ref={containerRef}
               className="cursor-default"
               style={{
-                transition: 'opacity 0.2s ease',
+                ...motionBlurStyle,
+                transition: motionBlurStyle.transition || 'opacity 0.2s ease',
                 opacity: isHovered ? 0.1 : 1
               }}
-              onMouseEnter={() => setIsHovered(true)}
+              onMouseEnter={() => {
+                if (!isMovingRef.current) setIsHovered(true);
+              }}
               onMouseLeave={() => setIsHovered(false)}
             >
               <TimerClock />

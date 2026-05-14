@@ -50,7 +50,7 @@ function showPreview() {
 function updateConfigAndPreview(key, value) {
   appConfig[key] = value;
   saveConfig();
-  updateWindowPosition();
+  updateWindowPosition(key !== 'position'); // 只在改变 position 时使用平滑动画
   if (mainWindow && mainWindow.webContents) {
     mainWindow.webContents.send('update-config', appConfig);
   }
@@ -121,8 +121,102 @@ function updateTrayMenu() {
 }
 
 let contentSize = null;
+let positionAnimation = null;
+let isInitialPositionSet = false;
 
-function updateWindowPosition() {
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function animatePosition(targetX, targetY, instant) {
+  if (!mainWindow) return;
+
+  // 严格检查坐标，确保始终传入有限的数字
+  if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) {
+    return;
+  }
+
+  targetX = Math.round(targetX);
+  targetY = Math.round(targetY);
+
+  if (instant || !isInitialPositionSet) {
+    if (positionAnimation) {
+      clearTimeout(positionAnimation.timer);
+      positionAnimation = null;
+    }
+    try {
+      mainWindow.setPosition(targetX, targetY, false);
+    } catch(e) {}
+    isInitialPositionSet = true;
+    return;
+  }
+
+  const startBounds = mainWindow.getBounds();
+  const startX = Number.isFinite(startBounds.x) ? startBounds.x : targetX;
+  const startY = Number.isFinite(startBounds.y) ? startBounds.y : targetY;
+
+  if (startX === targetX && startY === targetY) {
+    return;
+  }
+
+  if (positionAnimation) {
+    clearTimeout(positionAnimation.timer);
+    positionAnimation = null;
+  }
+
+  const dxTotal = targetX - startX;
+  const dyTotal = targetY - startY;
+  const duration = 900; // 回归固定的优雅时间（900ms），保持最好的物理惯性感
+  const startTime = Date.now();
+
+  function step() {
+    if (!mainWindow) return;
+    const now = Date.now();
+    const elapsed = now - startTime;
+    let progress = elapsed / duration;
+
+    if (progress >= 1) progress = 1;
+
+    const easedProgress = easeInOutCubic(progress);
+    let currentX = Math.round(startX + (targetX - startX) * easedProgress);
+    let currentY = Math.round(startY + (targetY - startY) * easedProgress);
+
+    // 双重保险，防止传递 NaN 导致 Electron 底层 C++ 转换报错
+    if (!Number.isFinite(currentX)) currentX = targetX;
+    if (!Number.isFinite(currentY)) currentY = targetY;
+
+    try {
+      mainWindow.setPosition(currentX, currentY, false);
+    } catch(e) {
+      // 忽略位置设置可能导致的底层转化异常
+    }
+
+    // 计算速度 (基于 cubic 缓出缓入的导数) 
+    // velocityFactor 代表 d(easedProgress)/d(progress)
+    const velocityFactor = progress < 0.5 ? 12 * progress * progress : 12 * (1 - progress) * (1 - progress);
+    
+    // 恢复自然速度，靠前端的非线性函数去放大短边视觉效果
+    const vX = dxTotal * velocityFactor;
+    const vY = dyTotal * velocityFactor;
+    
+    try {
+      mainWindow.webContents.send('window-moving', { dx: vX, dy: vY, progress });
+    } catch (e) {}
+
+    if (progress < 1) {
+      positionAnimation.timer = setTimeout(step, 16);
+    } else {
+      positionAnimation = null;
+      try {
+        mainWindow.webContents.send('window-moving-end');
+      } catch (e) {}
+    }
+  }
+
+  positionAnimation = { timer: setTimeout(step, 16) };
+}
+
+function updateWindowPosition(instant = false) {
   if (!mainWindow) return;
   const display = screen.getPrimaryDisplay();
   const bounds = display.bounds;
@@ -164,6 +258,10 @@ function updateWindowPosition() {
       Xc = areaX + areaWidth - P - (0.5 * W_ui);
       Yc = areaY + areaHeight - P - (0.5 * H_ui);
       break;
+    default:
+      Xc = areaX + areaWidth - P - (0.5 * W_ui);
+      Yc = areaY + P + (0.5 * H_ui);
+      break;
   }
   
   // 3. 将物理窗口的位置对齐到计算出的中心点
@@ -171,8 +269,10 @@ function updateWindowPosition() {
   const x = Math.round(Xc - (winBounds.width / 2));
   const y = Math.round(Yc - (winBounds.height / 2));
 
-  mainWindow.setPosition(x, y, false);
+  animatePosition(x, y, instant);
 }
+
+let isFirstSizeUpdate = true;
 
 ipcMain.on('update-size', (event, size) => {
   if (size && size.width > 0 && size.height > 0) {
@@ -180,7 +280,8 @@ ipcMain.on('update-size', (event, size) => {
       width: Math.round(size.width),
       height: Math.round(size.height)
     };
-    updateWindowPosition();
+    updateWindowPosition(isFirstSizeUpdate);
+    isFirstSizeUpdate = false;
   }
 });
 
@@ -208,7 +309,7 @@ function createWindow() {
   mainWindow.setAlwaysOnTop(true, 'screen-saver');
 
   updateTrayMenu();
-  updateWindowPosition();
+  updateWindowPosition(true);
 
   // 启用点击穿透，且 forward: true 允许网页接收鼠标移动事件 (用于 hover)
   mainWindow.setIgnoreMouseEvents(true, { forward: true });
