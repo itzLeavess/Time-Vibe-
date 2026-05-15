@@ -106,7 +106,9 @@ export default function App() {
   useEffect(() => {
     const interval = setInterval(() => {
       const now = new Date();
-      const shouldShow = isDisplayTime(now, config);
+      // Suppress time display if DND is active
+      const isDndActive = (config as any).dndEndTime && Date.now() < (config as any).dndEndTime;
+      const shouldShow = isDisplayTime(now, config as any) && !isDndActive;
       const visible = isPreview || shouldShow;
       setIsVisible(visible);
       setAnimationDirection(visible ? 'in' : 'out');

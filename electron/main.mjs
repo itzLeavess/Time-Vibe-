@@ -35,6 +35,44 @@ let mainWindow;
 let tray = null;
 let previewTimer = null;
 
+let dndTimer = null;
+let dndEndTime = appConfig.dndEndTime || 0;
+
+function checkDnd() {
+  if (Date.now() >= dndEndTime) {
+    setDnd(0);
+  } else {
+    updateTrayMenu();
+  }
+}
+
+function setDnd(minutes) {
+  if (minutes === 0) {
+    if (dndTimer) clearInterval(dndTimer);
+    dndTimer = null;
+    dndEndTime = 0;
+    appConfig.dndEndTime = 0;
+  } else {
+    dndEndTime = Date.now() + minutes * 60 * 1000;
+    appConfig.dndEndTime = dndEndTime;
+    if (dndTimer) clearInterval(dndTimer);
+    dndTimer = setInterval(checkDnd, 1000);
+  }
+  saveConfig();
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.send('update-config', appConfig);
+  }
+  updateTrayMenu();
+}
+
+if (dndEndTime > Date.now()) {
+  dndTimer = setInterval(checkDnd, 1000);
+} else {
+  dndEndTime = 0;
+  appConfig.dndEndTime = 0;
+}
+
+
 function showPreview() {
   if (mainWindow && mainWindow.webContents) {
     mainWindow.webContents.send('show-preview');
@@ -59,7 +97,46 @@ function updateConfigAndPreview(key, value) {
 }
 
 function updateTrayMenu() {
+  const isDndActive = Date.now() < dndEndTime;
+  let dndSubmenu = [];
+  if (isDndActive) {
+    const remainingMs = dndEndTime - Date.now();
+    let timeStr = '';
+    if (remainingMs > 120 * 60000) {
+      timeStr = Math.ceil(remainingMs / (60 * 60000)) + ' 小时';
+    } else if (remainingMs > 2 * 60000) {
+      timeStr = Math.ceil(remainingMs / 60000) + ' 分钟';
+    } else {
+      timeStr = Math.ceil(remainingMs / 1000) + ' 秒';
+    }
+    
+    dndSubmenu = [
+      { label: `提前结束免打扰 (剩 ${timeStr})`, click: () => setDnd(0) },
+      { type: 'separator' },
+      { label: '30分钟', enabled: false },
+      { label: '1小时', enabled: false },
+      { label: '2小时', enabled: false },
+      { label: '6小时', enabled: false },
+      { label: '12小时', enabled: false },
+      { label: '24小时', enabled: false },
+    ];
+  } else {
+    dndSubmenu = [
+      { label: '30分钟', click: () => setDnd(30) },
+      { label: '1小时', click: () => setDnd(60) },
+      { label: '2小时', click: () => setDnd(120) },
+      { label: '6小时', click: () => setDnd(360) },
+      { label: '12小时', click: () => setDnd(720) },
+      { label: '24小时', click: () => setDnd(1440) },
+    ];
+  }
+
   const contextMenu = Menu.buildFromTemplate([
+    {
+      label: '免打扰模式',
+      submenu: dndSubmenu
+    },
+    { type: 'separator' },
     {
       label: '位置预设',
       submenu: [
@@ -92,31 +169,54 @@ function updateTrayMenu() {
     { label: '退出', click: () => app.quit() }
   ]);
   
-  if (!tray) {
-    const iconPathAssets = path.join(__dirname, 'assets', 'iconTemplate.png');
-    const iconPathUserData = path.join(app.getPath('userData'), 'trayIcon.png');
-    
-    let icon;
-    if (fs.existsSync(iconPathAssets)) {
-      // 优先使用 assets 里的图标
-      icon = nativeImage.createFromPath(iconPathAssets);
-      icon.setTemplateImage(true); // 确保在深色/浅色模式下自动根据系统颜色反色
-    } else {
-      if (!fs.existsSync(iconPathUserData)) {
-        const b64 = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsEAAA7BAbiRa+0AAAAlSURBVDhPY2AYBaNgFIyCUcAAAAEQAAGW+0XAAAAAAElFTkSuQmCC';
-        fs.writeFileSync(iconPathUserData, Buffer.from(b64, 'base64'));
-      }
-      icon = nativeImage.createFromPath(iconPathUserData);
+  const iconName = isDndActive ? 'dndTemplate.png' : 'iconTemplate.png';
+  const iconPathAssets = path.join(__dirname, 'assets', iconName);
+  const iconPathOriginal = path.join(__dirname, 'assets', 'iconTemplate.png');
+  const iconPathUserData = path.join(app.getPath('userData'), 'trayIcon.png');
+  
+  let icon;
+  let hasImage = false;
+  let usingFallbackIconForDnd = false;
+
+  // 优先加载 dnd 专用 icon (如果开启了免打扰且提供了 dndTemplate.png)
+  if (isDndActive && fs.existsSync(iconPathAssets)) {
+    icon = nativeImage.createFromPath(iconPathAssets);
+    icon.setTemplateImage(true);
+    hasImage = true;
+  } else if (!isDndActive && fs.existsSync(iconPathOriginal)) {
+    icon = nativeImage.createFromPath(iconPathOriginal);
+    icon.setTemplateImage(true);
+    hasImage = true;
+  } else if (fs.existsSync(iconPathOriginal)) { 
+    // 回退到默认 icon
+    icon = nativeImage.createFromPath(iconPathOriginal);
+    icon.setTemplateImage(true);
+    hasImage = true;
+    if (isDndActive) usingFallbackIconForDnd = true;
+  } else {
+    if (!fs.existsSync(iconPathUserData)) {
+      const b64 = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsEAAA7BAbiRa+0AAAAlSURBVDhPY2AYBaNgFIyCUcAAAAEQAAGW+0XAAAAAAElFTkSuQmCC';
+      fs.writeFileSync(iconPathUserData, Buffer.from(b64, 'base64'));
     }
-    
-    tray = new Tray(icon);
-    
-    // 如果没有使用图片，或者想默认显示文字/emoji，可以在这里设置
-    // 如果加载了沙漏图片，可以去掉这个 setTitle
-    if (!fs.existsSync(iconPathAssets)) {
-      tray.setTitle('⏳ ');
-    }
+    icon = nativeImage.createFromPath(iconPathUserData);
   }
+
+  if (!tray) {
+    tray = new Tray(icon);
+  } else {
+    tray.setImage(icon);
+  }
+
+  // 如果使用了内置图片或者没有图片，设置相应的 title
+  if (!hasImage) {
+    tray.setTitle(isDndActive ? '⏳ 🔕' : '⏳ ');
+  } else if (usingFallbackIconForDnd) {
+    tray.setTitle(' 🔕');
+  } else {
+    // macOS 支持给图片额外设置 title（比如文字提示），正常情况置空
+    tray.setTitle('');
+  }
+
   tray.setContextMenu(contextMenu);
 }
 
